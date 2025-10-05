@@ -35,11 +35,10 @@ Generate a simple, human-readable CSV containing data on potentially colonisable
 
 #### Usage:
 
-To run EDASS, simple run EDASS.py in the root folder. The program will ask you for
-
-a central system to search around, a search radius, and a minimum planet count to cull. The CSV file is generated in /exports.
+To run EDASS, simply run EDASS.py in the root folder. The program will ask you for a central system to search around, a search radius, and a minimum planet count to cull. The CSV file is generated in /exports.
 
 ### Example CSV:
 
 <img width="935" height="184" alt="50a019964a16593c171d772a68d4866e" src="https://github.com/user-attachments/assets/202fe3d8-1445-4349-91c8-52488af691e2" />
+
 

@@ -2,7 +2,7 @@
 
 
 def user_input():
-    print("Welcome to EDASS (Elite Dangerous Automated Survey System)!")
+    print("Welcome to EDASS (Elite Dangerous Automatic System Survey)!")
     print("This tool helps you find uncolonised systems in Elite Dangerous.")
     print("Please enter the search parameters below.")
     centre = input("Enter the name of the central system (e.g., 'Sol'): ").strip()

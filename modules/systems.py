@@ -1,63 +1,70 @@
 from __future__ import annotations
-import time, random
-import requests
-from typing import Any
+import time, random, asyncio, httpx
+from typing import Any, Optional
+from functools import lru_cache
 from .models import SystemCandidate
 
-BASE = "https://www.edsm.net"
-ARDENT_API = "https://api.ardent-insight.com/v2/system/name/"
+EDSM = "https://www.edsm.net"
+ARDENT = "https://api.ardent-insight.com"
 #https://api.ardent-insight.com/v2/system/name/{systemName}/nearby
-UA   = {"User-Agent": "EDASS/0.1 (+edass-local)"}
+UA   = {"User-Agent": "EDASS/0.2 (+edass-local)"}
 
 
+class RateLimiter:
+    def __init__(self, rate_per_sec: float = 6.0, jitter_frac: float = 0.2):
+        self.min_interval = 1.0 / max(rate_per_sec, 1.0)
+        self.jitter_frac = max(0.0, min(jitter_frac, 0.75))
+        self._next_ok = 0.0
+        self._lock = asyncio.Lock()
 
-def _get_edsm(path: str, params: dict | None = None) -> Any | None:
-    #Get a JSON endpoint; return parsed JSON or None on error.
-    if not path.startswith("/"):
-        path = "/" + path
-    url = f"{BASE}{path}"
-    print(f"[EDASS] Requesting: {url} with {params}")
-    try:
-        r = requests.get(url, params=params or {}, headers=UA, timeout=20)
-        if r.status_code in (429, 503):
-            print(f"[EDSM] Rate limited or service unavailable: {r.status_code}")
-            print("[EDSM] Waiting 30 seconds before retrying...")
-            time.sleep(30)  # wait a bit before retrying
-            r = requests.get(url, params=params or {}, headers=UA, timeout=20)
-        r.raise_for_status()
-        return r.json()
-    except ValueError as e:  # JSON decode error
-        print(f"[EDSM] JSON decode {url} params={params} -> {e}")
-        return None
-    except requests.RequestException as e:
-        print(f"[EDSM] GET {url} params={params} -> {e}")
-        return None
-    except Exception as e:
-        print(f"[EDSM] Unexpected error {url} params={params} -> {e}")
-        return None
+    async def wait(self) -> None:
+        async with self._lock:
+            now = time.perf_counter()
+            if now < self._next_ok:
+                wait_time = self._next_ok - now
+                await asyncio.sleep(wait_time)
+            jitter = random.uniform(0.0, self.jitter_frac * self.min_interval)
+            next_interval = self.min_interval + jitter
+            self._next_ok = asyncio.get_running_loop().time() + next_interval
+
+def make_client() -> httpx.AsyncClient:
+    return httpx.AsyncClient(
+        base_url="https://www.edsm.net",
+        headers=UA,
+        timeout=httpx.Timeout(15.0, connect=6.0),
+        follow_redirects=True,
+        http2=False,
+    )
+        
+async def _get(client: httpx.AsyncClient, limiter, url: str, params: dict | None = None, *
+               , base_override: str | None = None) -> Optional[Any]:
+    await limiter.wait()
+    if base_override:
+        full_url = f"{base_override}{url}"
+        request = lambda: client.get(full_url, params=params or {})
+    else:
+        request = lambda: client.get(url, params=params or {})
+        
+    delay = 0.5
     
-def _get_ardent(path: str, end: str, params: dict | None = None) -> Any | None:
-    # Get a JSON endpoint; return parsed JSON or None on error.
-    url = f"{ARDENT_API}{path}{end}"
-    print(f"[EDASS] Requesting: {url} with {params}")
-    try:
-        r = requests.get(url, params=params or {}, headers=UA, timeout=20)
-        r.raise_for_status()
-        return r.json()
-    except ValueError as e:  # JSON decode error
-        print(f"[Ardent] JSON decode {url} params={params} -> {e}")
-        return None
-    except requests.RequestException as e:
-        print(f"[Ardent] GET {url} params={params} -> {e}")
-        return None
-    except Exception as e:
-        print(f"[Ardent] Unexpected error {url} params={params} -> {e}")
-        return None
+    for attempt in range(4):
+        try:
+            r = await request()
+            print(f"[GET] {base_override or 'EDSM'} {url} params={params}")
+            if r.status_code in (429, 502, 503, 504):
+                 raise httpx.HTTPStatusError("retryable", request=r.request, response=r)
+            return r.json()
+        except (httpx.TimeoutException, httpx.TransportError, httpx.HTTPStatusError):
+            if attempt == 3:
+                return None
+            await asyncio.sleep(delay + random.uniform(0.0, 0.2))
+            delay *= 1.8
+                                
+            
 
-def system_info(system_name: str) -> dict | None:
+async def system_info(client, limiter, system_name: str) -> dict | None:
     # EDSM: /api-v1/system?systemName=...&showInformation=1
-    data = _get_edsm(
-        "/api-v1/system",
+    data = await _get(client, limiter, "/api-v1/system",
         {"systemName": system_name, 
          "showInformation": 1,
          "showPermit": 1}
@@ -67,34 +74,25 @@ def system_info(system_name: str) -> dict | None:
     return None
 
 
-def search_systems(name: str, search_radius: int = 5) -> list[dict]:
+async def search_systems(client, limiter, name: str, search_radius: int = 5) -> list[dict]:
     name = name.strip()
     if not name:
         return []
-    end = "/nearby"
-    params = {"maxDistance": search_radius}
-    data = _get_ardent(name, end, params)
-    if isinstance(data, list):
-        print(f"[EDASS] Found {len(data)} systems near '{name}' within {search_radius} ly.")
-        return data
-    return []
+    url = f"/v2/system/name/{name}/nearby"
+    data = await _get(client, limiter, url, {"maxDistance": search_radius}, base_override=ARDENT)
+    return data if isinstance(data, list) else []
 
-def stations_for(system_name: str) -> list[dict] | None:
-    data = _get_edsm("/api-system-v1/stations", {"systemName": system_name})
+async def stations_for(client, limiter, system_name: str) -> list[dict] | None:
+    data = await _get(client, limiter, "/api-system-v1/stations", {"systemName": system_name})
     # EDSM sometimes returns a bare list, sometimes { "stations": [...] }
-    if isinstance(data, dict):
-        return data.get("stations") or []
-    if isinstance(data, list):
-        return data
-    if data == []:
-        return []
-    return None 
-
-def bodies_for(system_name: str) -> dict | None:
-    data = _get_edsm("/api-system-v1/bodies", {"systemName": system_name})
-    if isinstance(data, dict):
-        return data
+    if isinstance(data, dict):   return data.get("stations") or []
+    if isinstance(data, list):   return data
+    if data == []:               return []
     return None
+
+async def bodies_for(client, limiter, system_name: str) -> dict | None:
+    data = await _get(client, limiter, "/api-system-v1/bodies", {"systemName": system_name})
+    return data if isinstance(data, dict) else None
 
 def _tally_bodies(cand: SystemCandidate, bodies_payload: dict | None) -> None:
     if not bodies_payload or "bodies" not in bodies_payload:
@@ -119,7 +117,7 @@ def _tally_bodies(cand: SystemCandidate, bodies_payload: dict | None) -> None:
         if b.get("rings"):
             cand.rings += 1
 
-def _tally_stations(cand: SystemCandidate, stations_payload: list[dict] | None, polite_delay: float = 1.0) -> None:
+def _tally_stations(cand: SystemCandidate, stations_payload: list[dict] | None) -> None:
     if stations_payload is None:
         cand.data_ok = False
         cand.add_note("No station data")
@@ -136,86 +134,114 @@ def _tally_stations(cand: SystemCandidate, stations_payload: list[dict] | None, 
             cand.uncolonisable = True
             cand.add_note("Station present")
 
-    #if still not populated after station scan, check system info
-    if not cand.uncolonisable:
-        if polite_delay > 0:
-            time.sleep(polite_delay)  #be nice to EDSM :3
-        raw = system_info(cand.name) or {}
-        info = raw.get("information", raw)
-        permit_info =  raw.get("permit", raw)
-        pop = info.get("population")
-        gov = info.get("government")
-        require_permit: bool = permit_info.get("requirePermit")
+async def population_check(client, limiter, cand: SystemCandidate) -> None: 
+    raw = await system_info(client, limiter, cand.name)
+    if raw is None:
+        cand.data_ok = False
+        cand.add_note("Bad system info")
+        return
+    info = raw.get("information", raw)
+    permit_info = raw.get("permit", raw)
+    pop = info.get("population")
+    gov = info.get("government")
+    require_permit = permit_info.get("requirePermit")
       
 
-        if require_permit:
-            cand.add_note("Permit locked")
-            print(f"[EDASS] Detected permit lock on {cand.name}")
-            cand.uncolonisable = True
+    if require_permit:
+        cand.add_note("Permit locked")
+        cand.uncolonisable = True
         
-        try:
-            pop_val = int(pop) if pop is not None else 0
-        except (TypeError, ValueError):
-            pop_val = 0
-            cand.data_ok = False
-            cand.add_note("Bad population data")
+    try:
+        pop_val = int(pop) if pop is not None else 0
+    except (TypeError, ValueError):
+        pop_val = 0
+        cand.data_ok = False
+        cand.add_note("Bad population data")
         
-        print(f"[EDASS] Detected population: {pop_val} | Detected goverment: {gov}")
+    if pop_val > 0 or (isinstance(gov, str) and gov.strip()):
+        cand.uncolonisable = True
+        cand.add_note(f"Population: {pop_val}" if pop_val > 0 else f"Government: {gov}")
 
-        if pop_val > 0 or (isinstance(gov, str) and gov.strip()):
-            cand.uncolonisable = True
-            cand.add_note("Populated" if pop_val > 0 else f"Government: {gov}")
 
+async def process_system(client, limiter, s: dict, *, exclude_uncolonisable: bool) -> SystemCandidate:
+
+    name = (s.get("systemName") or s.get("name") or "Unknown")
+    dist = float(s.get("distance") or 0.0)
+    cand = SystemCandidate(name=name, distance_ly=dist)
+
+    await population_check(client, limiter, cand)
+
+    if exclude_uncolonisable and cand.uncolonisable:
+        print(f"[EDASS] Skipping uncolonisable system: {cand.name}")
+        return cand
+    
+    st = await stations_for(client, limiter, name)
+    _tally_stations(cand, st)
+
+    if exclude_uncolonisable and cand.uncolonisable:
+        print(f"[EDASS] Skipping uncolonisable system: {cand.name}")
+        return cand
+    
+    bd = await bodies_for(client, limiter, name)
+    _tally_bodies(cand, bd)
+    
+    return cand
+
+
+async def fetch_candidates_async(
+    centre: str,
+    radius_ly: float,
+    *,
+    exclude_uncolonisable: bool = True,
+    max_concurrent: int = 5,
+    rate_per_sec: float = 6.0,
+    confirm: bool = True,
+) -> list[SystemCandidate]:
+    limiter = RateLimiter(rate_per_sec)
+    sem = asyncio.Semaphore(max_concurrent)
+
+    async with make_client() as client:
+        raw = await search_systems(client, limiter, centre, search_radius=radius_ly)
+
+        if not raw:
+            print("[EDASS] Systems not found, please try a different search.")
+            return []
+        if len(raw) > 300:
+            print(f"[EDASS] Too many systems found ({len(raw)}). Please narrow your search.")
+            return []
+        
+        approx_calls = len(raw) * 3
+        sec_min = approx_calls / rate_per_sec
+        print(f"[EDASS] Estimated time to fetch details for {len(raw)} systems: ~{sec_min:.1f} seconds")
+        if confirm:
+            ans = input("Would you like to continue? (y/n): ").strip().lower()
+            if ans not in ("y", "yes"):
+                print("Aborting.")
+                return []
+        async def run_one(s):
+            async with sem:
+                return await process_system(client, limiter, s, exclude_uncolonisable=exclude_uncolonisable)
+        return await asyncio.gather(*(run_one(s) for s in raw))
     
     
-
-
-def fetch_candidates(centre: str, radius_ly: float, *, polite_delay: float = 1.0, confirm: bool = True) -> list[SystemCandidate]:
-    #get all systems here, enrich with stations/bodies/notes, return candidates
-
-    raw = search_systems(centre, search_radius=radius_ly)
-    if raw == []:  # --- fallback pseudo data for testing ---
-        print("[EDASS] Systems not found, please try a different search.")      
-        return []
-    if len(raw) > 200:
-        print(f"[EDASS] Too many systems found ({len(raw)}). Please narrow your search.")
-        return []
-    
-    time_estimate = len(raw) * polite_delay * 8  # rough estimate
-    print(f"[EDASS] Estimated time to fetch details for {len(raw)} systems: ~{time_estimate:.1f} seconds")
-    prompt_continue = "Would you like to continue? (y/n): "
-    print(prompt_continue, end="")
-    ans = input().strip().lower()
-    if ans not in ("y", "yes"):
-        print("Aborting.")
-        return []
-    out: list[SystemCandidate] = []
-    for s in raw:
-        jitter = polite_delay + random.uniform(-0.05, 0.05)
-        name = s.get("systemName") or "Unknown"
-        dist = s.get("distance") or 0.0
-        cand = SystemCandidate(name=name, distance_ly=dist)
-        st = stations_for(name)
-
-        _tally_stations(cand, st, jitter)
-        if jitter > 0:
-            time.sleep(jitter)  #be nice to EDSM :3
-
-        bd = bodies_for(name)
-        _tally_bodies(cand, bd)
-        if jitter > 0:
-            time.sleep(jitter)  #be nice to EDSM :3
-
-        print(f"[EDASS] Jitter: {jitter:.2f} seconds")
-        
-
-        out.append(cand)
-    print("[EDASS] candidate info processed")
-    return out
-
-
-if __name__ == "__main__":
-    cands = fetch_candidates("Sol", 10, polite_delay=1.0, confirm=False)
-    print(len(cands), "candidates")
-    for c in cands[:5]:
-        print(c.name, c.distance_ly, c.planet_count, c.notes)
+def fetch_candidates(
+    centre: str,
+    radius_ly: float,
+    *,
+    exclude_uncolonisable: bool = True,
+    max_concurrent: int = 5,
+    rate_per_sec: float = 6.0,
+    confirm: bool = True,
+) -> list[SystemCandidate]:
+    #Sync wrapper so the rest of the project can use this without await.
+    import asyncio
+    return asyncio.run(
+        fetch_candidates_async(
+            centre,
+            radius_ly,
+            exclude_uncolonisable=exclude_uncolonisable,
+            max_concurrent=max_concurrent,
+            rate_per_sec=rate_per_sec,
+            confirm=confirm,
+        )
+    )

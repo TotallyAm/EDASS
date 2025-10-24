@@ -1,4 +1,4 @@
-### EDASS - Elite Dangerous Automatic System Survey
+### EDASS - Elite Dangerous Automatic System Survey - V0.2
 
 
 
@@ -29,15 +29,14 @@ Generate a simple, human-readable CSV containing data on potentially colonisable
 #### Requirements:
 
 * You will need Python v3.10+, and ideally pip.
-* The only required module is requests, it will NOT work without this module.
+* The only required module is httpx, it will NOT work without this module.
 
 
 
 #### Usage:
 
-To run EDASS, simple run EDASS.py in the root folder. The program will ask you for
-
-a central system to search around, a search radius, and a minimum planet count to cull. The CSV file is generated in /exports.
+To run EDASS, simply run EDASS.py in the root folder. The program will ask you for
+a central system to search around, a search radius, and a minimum planet count to cull. The CSV file is generated in /export.
 
 ### Example CSV:
 

@@ -40,6 +40,6 @@ a central system to search around, a search radius, and a minimum planet count t
 
 ### Example CSV:
 
-<img width="1184" height="763" alt="3107944a4326068cfca5e179fb7c6f1d" src="https://github.com/user-attachments/assets/11de9d1c-a979-4968-8e62-a93287716e2c" />
+<img width="1184" height="765" alt="d7a61c9dc81ac02f20dbff88ec1bccfc (1)" src="https://github.com/user-attachments/assets/0dcfaa08-23c4-4cf9-b365-1dee8a57371e" />
 
 

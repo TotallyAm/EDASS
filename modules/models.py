@@ -1,8 +1,8 @@
 from dataclasses import dataclass, field
 
 CSV_COLUMNS = [
-  "name", "distance_ly", "planet_count", "interesting_worlds", 
-  "landables", "rings", "notes"
+  "System", "Distance (ly)", "Primary star", "Stars", "Planets", "Interesting Planets", 
+  "Landables", "Rings", "Notes"
 ]
 
 @dataclass
@@ -10,12 +10,14 @@ class SystemCandidate:
   #core info
   name: str = "Unknown"
   distance_ly: float = 0.0
+  primary_star: str = "Unknown"
 
   #tallies
   planet_count: int = 0
   interesting_worlds: int = 0
   landables: int = 0
   rings: int = 0
+  star_count: int = 0
 
   #flags
   uncolonisable: bool = False
@@ -35,13 +37,15 @@ class SystemCandidate:
     
   def to_csv_row(self) -> dict:
     row = {
-        "name": self.name,
-        "distance_ly": f"{self.distance_ly:.2f}",
-        "planet_count": self.planet_count,
-        "interesting_worlds": self.interesting_worlds,
-        "landables": self.landables,
-        "rings": self.rings,
-        "notes": self.note_str
+        "System": self.name,
+        "Distance (ly)": f"{self.distance_ly:.2f}",
+        "Primary star": self.primary_star,
+        "Stars": self.star_count,
+        "Planets": self.planet_count,
+        "Interesting Planets": self.interesting_worlds,
+        "Landables": self.landables,
+        "Rings": self.rings,
+        "Notes": self.note_str
     }
     return row
   

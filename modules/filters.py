@@ -14,11 +14,6 @@ def is_populated(c: SystemCandidate, *, exclude_uncolonisable: bool = True) -> b
         return True
     return False
 
-#removed for now, inbetween apis
-'''def is_permit_locked(c: SystemCandidate, *, exclude_permit_locked: bool = True) -> bool:
-    if exclude_permit_locked and c.is_permit_locked:
-        return True
-    return False'''
 
 class Filter:
     def filter_candidates(
@@ -42,9 +37,6 @@ class Filter:
             if not passes_min_planets(c, min_planets):
                 culled.append(Culled(c, f"Fewer than {min_planets} planets"))
                 continue
-            '''if is_permit_locked(c, exclude_permit_locked=exclude_permit_locked):
-                culled.append(Culled(c, "Permit locked"))
-                continue '''
 
             survivors.append(c)
         return survivors, culled

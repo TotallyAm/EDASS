@@ -1,8 +1,8 @@
-### EDASS - Elite Dangerous Automatic System Survey - V0.2
+### EDASS - Elite Dangerous Automatic System Survey - V0.3
 
 
 
-Generate a simple, human-readable CSV containing data on potentially colonisable systems in your vicinity in Elite Dangerous.
+Generate a simple, human-readable CSV containing data on potentially colonisable or otherwise interesting and unique systems in Elite Dangerous.
 
 
 
@@ -12,16 +12,16 @@ Generate a simple, human-readable CSV containing data on potentially colonisable
 * Automatic, mostly fool-proof determination of system colonisation status.
 * Counts the numbers of bodies and rings in the system, and the distance from you.
 * Determination of "interesting" body types, and counts the total.
-* Procedural notes section, including notes such as the presence of an ELW.
+* Counts stars, notes stars of interest to you.
+* Procedural notes section, informing you of unique or important system info.
 
 
 
 #### Caveats:
 
 * EDSM data can be wrong, or out of date.
-* This program is slow, it hammers the EDSM api, and is intentionally kept slow.
+* This program is slow, it hammers the EDSM api, it is possible to be rate limited.
 * Again, it is limited to EDSM data, if none is present, a search isn't valid.
-* Does not currently check for star types, but is planned.
 * Some systems are colonisation locked, but uninhabited and not permit locked, EDASS is not capable of detecting this colonisation lock, it will return as colonisable.
 
 

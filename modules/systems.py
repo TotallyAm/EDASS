@@ -51,7 +51,7 @@ class RateLimiter:
             self.current = max(self.min, self.current - 0.5)
 
             self._cooldown_until = now + max(retry_after_seconds or 0.0, 5.0)
-            if old != self.current:
+            #if old != self.current:
                 #print(f"[Limiter] 429: {old:.2f} -> {self.current:.2f} rps") #debug
 
     #to recover the rate after a success
@@ -62,7 +62,7 @@ class RateLimiter:
                 old = self.current
                 self.current = min(self.target, self.current + 0.25)
                 self._cooldown_until = now + 5.0
-                if old != self.current:
+                #if old != self.current:
                     #print(f"[Limiter] recover: {old:.2f} -> {self.current:.2f} rps") #debug
 
 
